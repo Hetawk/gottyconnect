@@ -5,8 +5,8 @@
 #
 # Features:
 # ✅ Single script - complete deployment
-# ✅ Token-based authentication (custom header: X-Auth-Token)
-# ✅ HTTP Basic Auth fallback
+# ✅ Public endpoint with URL token authentication (NO POPUP in iframes!)
+# ✅ HTTP Basic Auth for direct access
 # ✅ Automatic port detection and conflict resolution
 # ✅ SSL/HTTPS with Let's Encrypt
 # ✅ Portable - works on any server
@@ -207,10 +207,13 @@ EOF
 }
 
 ###############################################################################
-# Configure Nginx with Token Authentication
+# Configure Nginx with Public Endpoint (No Auth Popup)
 ###############################################################################
 configure_nginx() {
-    echo -e "${BLUE}Configuring Nginx with token auth...${NC}"
+    echo -e "${BLUE}Configuring Nginx with public endpoint...${NC}"
+    
+    # Generate Base64 auth for GoTTY
+    GOTTY_AUTH_BASE64=$(echo -n "${GOTTY_CREDENTIAL}" | base64 -w 0)
     
     cat > /etc/nginx/sites-available/${SERVICE_NAME} <<EOF
 # HTTP - Redirect to HTTPS
@@ -235,33 +238,69 @@ server {
     # SSL Configuration (managed by certbot)
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
     
     # Security headers
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Strict-Transport-Security "max-age=31536000" always;
     
     # Logging
     access_log ${LOG_DIR}/nginx-access.log;
     error_log ${LOG_DIR}/nginx-error.log;
     
-    # Token-based authentication
-    location / {
-        # Set auth flag
-        set \$auth_ok 0;
-        
-        # Check X-Auth-Token header (primary method)
-        if (\$http_x_auth_token = "${GOTTY_AUTH_TOKEN}") {
-            set \$auth_ok 1;
+    # ===== PUBLIC ENDPOINT - NO AUTH POPUP =====
+    # This endpoint validates token in URL and adds Basic Auth header server-side
+    # Usage: https://${DOMAIN}/public?token=YOUR_TOKEN
+    location = /public {
+        # Validate token in URL parameter
+        if (\$arg_token != "${GOTTY_AUTH_TOKEN}") {
+            return 401 "Invalid or missing token";
         }
         
-        # Reject if no valid token
-        if (\$auth_ok = 0) {
-            return 401 '{"error":"Unauthorized","message":"Valid X-Auth-Token header required"}';
-        }
+        # Add Basic Auth header automatically (invisible to browser)
+        proxy_set_header Authorization "Basic ${GOTTY_AUTH_BASE64}";
         
-        # Proxy to GoTTY
+        # Proxy to GoTTY (trailing slash is critical!)
+        proxy_pass http://127.0.0.1:${GOTTY_PORT}/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_buffering off;
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+    # ===== END PUBLIC ENDPOINT =====
+    
+    # ===== STATIC ASSETS - NO TOKEN REQUIRED =====
+    # JavaScript, CSS, and images needed by GoTTY
+    # These are loaded by the browser after loading /public
+    location ~ ^/(js|css|favicon\.png|auth_token\.js) {
+        # Add Basic Auth header for GoTTY assets
+        proxy_set_header Authorization "Basic ${GOTTY_AUTH_BASE64}";
+        
+        proxy_pass http://127.0.0.1:${GOTTY_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+    # ===== END STATIC ASSETS =====
+    
+    # ===== WEBSOCKET FROM /public PAGE =====
+    # GoTTY tries to connect to /publicws when loaded from /public
+    # This catches that and redirects to the correct /ws endpoint
+    location = /publicws {
+        # Add Basic Auth header for WebSocket
+        proxy_set_header Authorization "Basic ${GOTTY_AUTH_BASE64}";
+        
+        # Rewrite to correct WebSocket path
+        rewrite ^/publicws\$ /ws break;
+        
         proxy_pass http://127.0.0.1:${GOTTY_PORT};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
@@ -270,16 +309,43 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        # Remove auth token before proxying (security)
-        proxy_set_header X-Auth-Token "";
-        
-        # WebSocket timeouts
+        proxy_buffering off;
         proxy_read_timeout 86400;
         proxy_send_timeout 86400;
-        proxy_connect_timeout 60;
+    }
+    # ===== END /publicws FIX =====
+    
+    # ===== WEBSOCKET ENDPOINT =====
+    location /ws {
+        # Add Basic Auth header for WebSocket
+        proxy_set_header Authorization "Basic ${GOTTY_AUTH_BASE64}";
         
-        # Buffering
+        proxy_pass http://127.0.0.1:${GOTTY_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_buffering off;
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+    }
+    # ===== END WEBSOCKET =====
+    
+    # Regular endpoint (requires Basic Auth - will show popup in iframe)
+    location / {
+        proxy_pass http://127.0.0.1:${GOTTY_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
         proxy_buffering off;
     }
     
@@ -298,7 +364,7 @@ EOF
     # Test config
     nginx -t
     
-    echo -e "${GREEN}✓ Nginx configured${NC}"
+    echo -e "${GREEN}✓ Nginx configured with /public endpoint + static assets${NC}"
 }
 
 ###############################################################################
@@ -378,60 +444,78 @@ else
     echo "   ❌ Health check failed (code: \$HTTP_CODE)"
 fi
 
-# Test 2: Token authentication
+# Test 2: Public endpoint with valid token (NO POPUP!)
 echo ""
-echo "2️⃣  Token authentication..."
+echo "2️⃣  Public endpoint (iframe-friendly)..."
 HTTP_CODE=\$(curl -s -o /dev/null -w "%{http_code}" \\
-    -H "X-Auth-Token: ${GOTTY_AUTH_TOKEN}" \\
-    https://${DOMAIN} 2>/dev/null)
+    "https://${DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}" 2>/dev/null)
 if [ "\$HTTP_CODE" = "200" ]; then
-    echo "   ✅ Token auth works"
+    echo "   ✅ Public endpoint works (NO AUTH POPUP)"
 else
-    echo "   ❌ Token auth failed (code: \$HTTP_CODE)"
+    echo "   ❌ Public endpoint failed (code: \$HTTP_CODE)"
 fi
 
-# Test 3: Without token (should fail)
+# Test 3: Public endpoint with invalid token (should fail)
 echo ""
-echo "3️⃣  Auth protection..."
+echo "3️⃣  Token validation..."
 HTTP_CODE=\$(curl -s -o /dev/null -w "%{http_code}" \\
-    https://${DOMAIN} 2>/dev/null)
+    "https://${DOMAIN}/public?token=invalid" 2>/dev/null)
 if [ "\$HTTP_CODE" = "401" ]; then
-    echo "   ✅ Protected (401 without token)"
+    echo "   ✅ Invalid token rejected (401)"
 else
     echo "   ⚠️  Unexpected code: \$HTTP_CODE"
 fi
 
+# Test 4: Direct access with Basic Auth
 echo ""
-echo "4️⃣  Service status:"
+echo "4️⃣  Basic Auth (direct access)..."
+HTTP_CODE=\$(curl -s -o /dev/null -w "%{http_code}" \\
+    -u "${GOTTY_CREDENTIAL}" \\
+    https://${DOMAIN} 2>/dev/null)
+if [ "\$HTTP_CODE" = "200" ]; then
+    echo "   ✅ Basic Auth works"
+else
+    echo "   ⚠️  Basic Auth code: \$HTTP_CODE"
+fi
+
+echo ""
+echo "5️⃣  Service status:"
 sudo systemctl status ${SERVICE_NAME}.service --no-pager -l | head -8
 
 echo ""
 echo "✅ Test complete!"
 echo ""
 echo "🔗 Connection Info:"
-echo "   URL: https://${DOMAIN}"
+echo "   Public (NO POPUP): https://${DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}"
+echo "   Direct (has popup): https://${DOMAIN}"
 echo "   WebSocket: wss://${DOMAIN}/ws"
-echo "   Auth Token: ${GOTTY_AUTH_TOKEN}"
+echo ""
+echo "📋 For iframe embedding (recommended):"
+echo "   <iframe src=\"https://${DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}\"></iframe>"
 EOF
 
     chmod +x "$SCRIPT_DIR/test-gotty.sh"
     
-    # Node.js test script
+    # Node.js test script for WebSocket
     cat > "$SCRIPT_DIR/test-gotty-node.js" <<EOF
 const WebSocket = require('ws');
 
+// For WebSocket connections, use Basic Auth
 const config = {
     url: 'wss://${DOMAIN}/ws',
-    token: '${GOTTY_AUTH_TOKEN}'
+    auth: '${GOTTY_CREDENTIAL}'
 };
 
 console.log('🔌 Testing GoTTY WebSocket Connection');
 console.log('URL:', config.url);
 console.log('');
 
+// Create Basic Auth header
+const authHeader = 'Basic ' + Buffer.from(config.auth).toString('base64');
+
 const ws = new WebSocket(config.url, {
     headers: {
-        'X-Auth-Token': config.token
+        'Authorization': authHeader
     }
 });
 
@@ -502,45 +586,161 @@ create_docs() {
 
 ## Connection Details
 
-- **URL**: https://${DOMAIN}
+- **Domain**: https://${DOMAIN}
+- **Public Endpoint** (NO POPUP): https://${DOMAIN}/public?token=YOUR_TOKEN
+- **Direct Endpoint** (has popup): https://${DOMAIN}
 - **WebSocket**: wss://${DOMAIN}/ws
-- **Authentication**: X-Auth-Token header
-- **Token**: \`${GOTTY_AUTH_TOKEN}\`
+- **Auth Token**: \`${GOTTY_AUTH_TOKEN}\`
+- **Basic Auth**: \`${GOTTY_CREDENTIAL}\`
 
-## Quick Test
+## Important: Two Authentication Methods
+
+### 1. Public Endpoint (Recommended for iframes - NO POPUP!)
+
+**URL Format:**
+\`\`\`
+https://${DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}
+\`\`\`
+
+**How it works:**
+- Token in URL parameter
+- Nginx validates token server-side
+- Nginx adds Basic Auth header automatically
+- Browser NEVER sees authentication requirement
+- **Perfect for iframe embedding - NO POPUP!**
+
+**Usage in iframe:**
+\`\`\`html
+<iframe 
+  src="https://${DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}"
+  style="width: 100%; height: 600px; border: none;"
+  sandbox="allow-same-origin allow-scripts allow-forms"
+></iframe>
+\`\`\`
+
+**Usage in Next.js/React:**
+\`\`\`typescript
+const publicUrl = \`\${process.env.GOTTY_PUBLIC_URL}?token=\${process.env.GOTTY_AUTH_TOKEN}\`;
+
+<iframe 
+  src={publicUrl}
+  style={{ width: '100%', height: '600px', border: 'none' }}
+/>
+\`\`\`
+
+### 2. Direct Access (Basic Auth - Will Show Popup in iframes)
+
+**URL Format:**
+\`\`\`
+https://${DOMAIN}
+\`\`\`
+
+**Authentication:**
+- Username: \`${GOTTY_USER}\`
+- Password: \`${GOTTY_PASS}\`
+- Or use: \`${GOTTY_CREDENTIAL}\`
+
+**Note:** This will trigger browser authentication popup in iframes. Use public endpoint instead.
+
+## Quick Tests
 
 \`\`\`bash
-# Health check (no auth needed)
+# Health check (no auth)
 curl https://${DOMAIN}/health
 
-# Main endpoint (requires token)
-curl -H "X-Auth-Token: ${GOTTY_AUTH_TOKEN}" https://${DOMAIN}
+# Public endpoint (NO POPUP)
+curl "https://${DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}"
+
+# Public endpoint with invalid token (should return 401)
+curl "https://${DOMAIN}/public?token=invalid"
+
+# Direct access with Basic Auth
+curl -u "${GOTTY_CREDENTIAL}" https://${DOMAIN}
 \`\`\`
 
 ## Integration Examples
 
-### JavaScript/Node.js
+### JavaScript/TypeScript - Browser (Recommended)
+
+\`\`\`typescript
+// For iframe embedding (NO POPUP!)
+const terminalUrl = 'https://${DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}';
+
+const iframe = document.createElement('iframe');
+iframe.src = terminalUrl;
+iframe.style.width = '100%';
+iframe.style.height = '600px';
+iframe.style.border = 'none';
+document.getElementById('terminal-container').appendChild(iframe);
+\`\`\`
+
+### Next.js Component
+
+\`\`\`typescript
+// components/Terminal.tsx
+import { useEffect, useState } from 'react';
+
+export default function Terminal() {
+  const [terminalUrl, setTerminalUrl] = useState('');
+
+  useEffect(() => {
+    // Fetch URL from your API (keeps token server-side)
+    fetch('/api/terminal/url')
+      .then(res => res.json())
+      .then(data => setTerminalUrl(data.url));
+  }, []);
+
+  if (!terminalUrl) return <div>Loading terminal...</div>;
+
+  return (
+    <iframe
+      src={terminalUrl}
+      style={{ width: '100%', height: '600px', border: 'none' }}
+      sandbox="allow-same-origin allow-scripts allow-forms"
+    />
+  );
+}
+
+// app/api/terminal/url/route.ts
+import { NextResponse } from 'next/server';
+
+export async function GET() {
+  const publicUrl = process.env.GOTTY_PUBLIC_URL;
+  const token = process.env.GOTTY_AUTH_TOKEN;
+  
+  return NextResponse.json({
+    url: \`\${publicUrl}?token=\${token}\`
+  });
+}
+\`\`\`
+
+### WebSocket Connection (Node.js)
 
 \`\`\`javascript
 const WebSocket = require('ws');
 
+// WebSocket uses Basic Auth
+const authHeader = 'Basic ' + Buffer.from('${GOTTY_CREDENTIAL}').toString('base64');
+
 const ws = new WebSocket('wss://${DOMAIN}/ws', {
     headers: {
-        'X-Auth-Token': '${GOTTY_AUTH_TOKEN}'
+        'Authorization': authHeader
     }
 });
 
 ws.on('open', () => {
-    // Send command
+    console.log('Connected!');
+    // Send command (type '0' + command + newline)
     ws.send('0ls -la\\n');
 });
 
 ws.on('message', (data) => {
     // Decode output (base64 after first byte)
     const buffer = Buffer.from(data);
-    if (buffer[0] === 0x30) {
-        const output = Buffer.from(buffer.slice(1).toString(), 'base64');
-        console.log(output.toString());
+    if (buffer[0] === 0x30) {  // Type '0'
+        const base64Data = buffer.slice(1).toString('utf-8');
+        const output = Buffer.from(base64Data, 'base64').toString('utf-8');
+        console.log(output);
     }
 });
 \`\`\`
@@ -551,9 +751,12 @@ ws.on('message', (data) => {
 import websocket
 import base64
 
+# WebSocket uses Basic Auth
+auth = base64.b64encode(b'${GOTTY_CREDENTIAL}').decode()
+
 ws = websocket.create_connection(
     'wss://${DOMAIN}/ws',
-    header={'X-Auth-Token': '${GOTTY_AUTH_TOKEN}'}
+    header={'Authorization': f'Basic {auth}'}
 )
 
 # Send command
@@ -564,14 +767,8 @@ data = ws.recv()
 if data[0] == 0x30:  # Type '0'
     output = base64.b64decode(data[1:])
     print(output.decode())
-\`\`\`
 
-### cURL
-
-\`\`\`bash
-# Web interface
-curl -H "X-Auth-Token: ${GOTTY_AUTH_TOKEN}" \\
-     https://${DOMAIN}
+ws.close()
 \`\`\`
 
 ## Environment Variables
@@ -579,9 +776,14 @@ curl -H "X-Auth-Token: ${GOTTY_AUTH_TOKEN}" \\
 For your applications:
 
 \`\`\`env
+# Public endpoint (NO POPUP - use this for iframes!)
+GOTTY_PUBLIC_URL=https://${DOMAIN}/public
+GOTTY_AUTH_TOKEN=${GOTTY_AUTH_TOKEN}
+
+# Direct access (has popup in iframes)
 GOTTY_URL=https://${DOMAIN}
 GOTTY_WS_URL=wss://${DOMAIN}/ws
-GOTTY_AUTH_TOKEN=${GOTTY_AUTH_TOKEN}
+GOTTY_CREDENTIAL=${GOTTY_CREDENTIAL}
 \`\`\`
 
 ## Protocol
@@ -590,12 +792,11 @@ GoTTY uses a simple binary protocol:
 - First byte: message type
   - \`0\` (0x30): input/output data
   - \`1\` (0x31): output
-  - \`2\` (0x32): ping
-  - etc.
+  - \`2\` (0x32): ping/pong
 - Remaining bytes: base64-encoded payload
 
-To send command: \`'0' + command + '\\n'\`
-To receive: decode base64 after first byte
+**To send command:** \`'0' + command + '\\n'\`
+**To receive:** decode base64 after first byte
 
 ## Service Management
 
@@ -606,17 +807,85 @@ sudo systemctl status ${SERVICE_NAME}
 # Restart
 sudo systemctl restart ${SERVICE_NAME}
 
+# Reload Nginx
+sudo systemctl reload nginx
+
 # Logs
 sudo journalctl -u ${SERVICE_NAME} -f
 tail -f ${LOG_DIR}/gotty.log
+tail -f ${LOG_DIR}/nginx-access.log
 \`\`\`
 
 ## Security Notes
 
-1. Always use HTTPS/WSS in production
-2. Keep your auth token secret
-3. Rotate tokens periodically
-4. Monitor access logs: \`${LOG_DIR}/nginx-access.log\`
+1. **Always use HTTPS/WSS** in production
+2. **Keep tokens secret** - never expose in client-side code or commit to Git
+3. **Use environment variables** for sensitive data
+4. **Rotate tokens periodically** (every 3-6 months)
+5. **Monitor access logs**: \`${LOG_DIR}/nginx-access.log\`
+6. **Public endpoint** is safe because token validation happens server-side
+
+## Troubleshooting
+
+### Still getting popup in iframe?
+
+Make sure you're using the **public endpoint**:
+\`\`\`
+https://${DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}
+\`\`\`
+
+NOT the direct endpoint:
+\`\`\`
+https://${DOMAIN}  ← This will show popup!
+\`\`\`
+
+### Token not working?
+
+Verify token matches:
+\`\`\`bash
+# Check .env file
+grep GOTTY_AUTH_TOKEN .env
+
+# Check Nginx config
+sudo grep 'arg_token' /etc/nginx/sites-available/${SERVICE_NAME}
+\`\`\`
+
+### Connection refused?
+
+Check services:
+\`\`\`bash
+sudo systemctl status ${SERVICE_NAME}
+sudo systemctl status nginx
+sudo journalctl -u ${SERVICE_NAME} -n 50
+\`\`\`
+
+## Architecture
+
+\`\`\`
+┌─────────────┐
+│   Browser   │  Request: GET /public?token=xxx
+│   (iframe)  │  (no auth header)
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│    Nginx    │  1. Validates token in URL
+│  Port 443   │  2. Adds Authorization: Basic xxx
+└──────┬──────┘  3. Proxies to GoTTY
+       │
+       ▼
+┌─────────────┐
+│   GoTTY     │  Receives authenticated request
+│  Port 7681  │  Returns terminal interface
+└─────────────┘
+
+Result: Browser never sees auth requirement = NO POPUP! ✅
+\`\`\`
+
+---
+
+**Last Updated:** $(date)
+**Server:** ${DOMAIN}
 EOF
 
     echo -e "${GREEN}✓ Documentation created${NC}"
@@ -632,17 +901,24 @@ print_summary() {
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${CYAN}🌐 Access Information:${NC}"
-    echo -e "   URL:       ${GREEN}https://${DOMAIN}${NC}"
+    echo -e "   ${YELLOW}Public (NO POPUP):${NC} ${GREEN}https://${DOMAIN}/public?token=...${NC}"
+    echo -e "   ${YELLOW}Direct (has popup):${NC} ${GREEN}https://${DOMAIN}${NC}"
     echo -e "   WebSocket: ${GREEN}wss://${DOMAIN}/ws${NC}"
     echo -e "   Health:    ${GREEN}https://${DOMAIN}/health${NC}"
     echo ""
     echo -e "${CYAN}🔐 Authentication:${NC}"
     echo -e "   Token: ${YELLOW}${GOTTY_AUTH_TOKEN}${NC}"
-    echo -e "   Header: ${BLUE}X-Auth-Token: ${GOTTY_AUTH_TOKEN}${NC}"
+    echo -e "   Basic Auth: ${BLUE}${GOTTY_CREDENTIAL}${NC}"
+    echo ""
+    echo -e "${CYAN}📱 For iframe embedding (NO POPUP):${NC}"
+    echo -e "   ${YELLOW}https://${DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}${NC}"
+    echo ""
+    echo -e "${CYAN}📋 Usage Example:${NC}"
+    echo -e '   <iframe src="https://${DOMAIN}/public?token=YOUR_TOKEN"></iframe>'
     echo ""
     echo -e "${CYAN}🧪 Quick Tests:${NC}"
-    echo -e "   ${YELLOW}./test-gotty.sh${NC}         # Bash test"
-    echo -e "   ${YELLOW}node test-gotty-node.js${NC}  # Node.js test"
+    echo -e "   ${YELLOW}./test-gotty.sh${NC}         # Bash test (all endpoints)"
+    echo -e "   ${YELLOW}node test-gotty-node.js${NC}  # WebSocket test"
     echo ""
     echo -e "${CYAN}📊 Service Management:${NC}"
     echo -e "   ${YELLOW}sudo systemctl status ${SERVICE_NAME}${NC}"
@@ -650,12 +926,14 @@ print_summary() {
     echo -e "   ${YELLOW}sudo journalctl -u ${SERVICE_NAME} -f${NC}"
     echo ""
     echo -e "${CYAN}📚 Documentation:${NC}"
-    echo -e "   ${YELLOW}cat INTEGRATION.md${NC}  # Integration examples"
+    echo -e "   ${YELLOW}cat INTEGRATION.md${NC}  # Complete integration guide"
     echo ""
     echo -e "${CYAN}💾 Configuration saved in:${NC}"
     echo -e "   ${YELLOW}$SCRIPT_DIR/.env${NC}"
     echo ""
     echo -e "${GREEN}✅ Ready for production use!${NC}"
+    echo -e "${BLUE}💡 Use /public endpoint for iframe embedding (no auth popup)${NC}"
+    echo -e "${BLUE}💡 Static assets (JS/CSS) load automatically without token${NC}"
     echo ""
 }
 

@@ -1,47 +1,64 @@
 #!/bin/bash
+source /home/hetawk/coding/ttyd/.env
+
 echo "🧪 Testing GoTTY Terminal Server"
 echo ""
 
 # Test 1: Health check
 echo "1️⃣  Health check..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://ttydconnect.ekddigital.com/health 2>/dev/null)
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://${GOTTY_DOMAIN}/health 2>/dev/null)
 if [ "$HTTP_CODE" = "200" ]; then
     echo "   ✅ Health check OK"
 else
     echo "   ❌ Health check failed (code: $HTTP_CODE)"
 fi
 
-# Test 2: Token authentication
+# Test 2: Public endpoint with valid token (NO POPUP!)
 echo ""
-echo "2️⃣  Token authentication..."
+echo "2️⃣  Public endpoint (iframe-friendly)..."
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-    -H "X-Auth-Token: 8bd628f7b79f35c6cdd4de3d708647a61112bf302b95b9f0a5e37e2cd0e4e1d5" \
-    https://ttydconnect.ekddigital.com 2>/dev/null)
+    "https://${GOTTY_DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}" 2>/dev/null)
 if [ "$HTTP_CODE" = "200" ]; then
-    echo "   ✅ Token auth works"
+    echo "   ✅ Public endpoint works (NO AUTH POPUP)"
 else
-    echo "   ❌ Token auth failed (code: $HTTP_CODE)"
+    echo "   ❌ Public endpoint failed (code: $HTTP_CODE)"
 fi
 
-# Test 3: Without token (should fail)
+# Test 3: Public endpoint with invalid token (should fail)
 echo ""
-echo "3️⃣  Auth protection..."
+echo "3️⃣  Token validation..."
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-    https://ttydconnect.ekddigital.com 2>/dev/null)
+    "https://${GOTTY_DOMAIN}/public?token=invalid" 2>/dev/null)
 if [ "$HTTP_CODE" = "401" ]; then
-    echo "   ✅ Protected (401 without token)"
+    echo "   ✅ Invalid token rejected (401)"
 else
     echo "   ⚠️  Unexpected code: $HTTP_CODE"
 fi
 
+# Test 4: Direct access with Basic Auth
 echo ""
-echo "4️⃣  Service status:"
+echo "4️⃣  Basic Auth (direct access)..."
+GOTTY_CREDENTIAL="${GOTTY_CREDENTIAL:-terminal:${GOTTY_AUTH_TOKEN}}"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    -u "${GOTTY_CREDENTIAL}" \
+    https://${GOTTY_DOMAIN} 2>/dev/null)
+if [ "$HTTP_CODE" = "200" ]; then
+    echo "   ✅ Basic Auth works"
+else
+    echo "   ⚠️  Basic Auth code: $HTTP_CODE"
+fi
+
+echo ""
+echo "5️⃣  Service status:"
 sudo systemctl status gottyconnect.service --no-pager -l | head -8
 
 echo ""
 echo "✅ Test complete!"
 echo ""
 echo "🔗 Connection Info:"
-echo "   URL: https://ttydconnect.ekddigital.com"
-echo "   WebSocket: wss://ttydconnect.ekddigital.com/ws"
-echo "   Auth Token: 8bd628f7b79f35c6cdd4de3d708647a61112bf302b95b9f0a5e37e2cd0e4e1d5"
+echo "   Public (NO POPUP): https://${GOTTY_DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}"
+echo "   Direct (has popup): https://${GOTTY_DOMAIN}"
+echo "   WebSocket: wss://${GOTTY_DOMAIN}/ws"
+echo ""
+echo "📋 For iframe embedding (recommended):"
+echo "   <iframe src=\"https://${GOTTY_DOMAIN}/public?token=${GOTTY_AUTH_TOKEN}\"></iframe>"

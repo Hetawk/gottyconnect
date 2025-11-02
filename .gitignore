@@ -146,6 +146,6 @@ Cargo.lock
 *.old
 
 # System files
-/etc/systemd/system/ttydconnect.service
-/etc/nginx/sites-available/ttydconnect
-/etc/letsencrypt/live/ttydconnect.ekddigital.com/
+/etc/systemd/system/*.service
+/etc/nginx/sites-available/*
+/etc/letsencrypt/

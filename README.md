@@ -1,261 +1,519 @@
-# GoTTY Terminal Server - Production Deployment
+# GoTTY Connect - Web Terminal with iframe Support# GoTTY Terminal Server - Production Deployment
 
-Complete automated deployment for GoTTY web-based terminal server with SSL, authentication, and WebSocket support.
 
-## ✨ Features
 
-- 🚀 **Single-script deployment** - One command does everything
-- 🔐 **Secure authentication** - HTTP Basic Auth for terminal access
-- 🔒 **SSL/HTTPS** - Automatic Let's Encrypt certificates
-- 🌐 **WebSocket support** - Full bidirectional communication
-- 📦 **Portable** - Copy to any server and deploy
-- 🛡️ **Production-ready** - Auto-restart, logging, and monitoring
-- ⚙️ **Auto port detection** - No conflicts with existing services
+A production-ready GoTTY deployment solution that works seamlessly in iframes **without authentication popups**. Perfect for embedding terminal access in web applications.Complete automated deployment for GoTTY web-based terminal server with SSL, authentication, and WebSocket support.
 
-## 🚀 Quick Start
 
-### 1. Configure Environment
+
+## ✨ Features## ✨ Features
+
+
+
+- 🚀 **Single-Script Deployment** - Complete setup in ~3 minutes- 🚀 **Single-script deployment** - One command does everything
+
+- 🔐 **No Auth Popup in iframes** - Token-based authentication via URL parameters- 🔐 **Secure authentication** - HTTP Basic Auth for terminal access
+
+- 🔒 **SSL/HTTPS** - Automatic Let's Encrypt certificate generation- 🔒 **SSL/HTTPS** - Automatic Let's Encrypt certificates
+
+- 📱 **iframe-Friendly** - Works perfectly in Next.js, React, Vue, etc.- 🌐 **WebSocket support** - Full bidirectional communication
+
+- 🔧 **Automatic Configuration** - Port detection, service setup, nginx config- 📦 **Portable** - Copy to any server and deploy
+
+- 🌐 **WebSocket Support** - Full terminal functionality with proper WebSocket handling- 🛡️ **Production-ready** - Auto-restart, logging, and monitoring
+
+- 📦 **Portable** - Works on any Linux server with a single command- ⚙️ **Auto port detection** - No conflicts with existing services
+
+
+
+## 🚀 Quick Start## 🚀 Quick Start
+
+
+
+### 1. Clone Repository### 1. Configure Environment
+
+
+
+```bash```bash
+
+git clone https://github.com/Hetawk/gottyconnect.gitcp .env.example .env
+
+cd gottyconnectnano .env
+
+``````
+
+
+
+### 2. Create ConfigurationUpdate with your values:
 
 ```bash
-cp .env.example .env
-nano .env
-```
 
-Update with your values:
-```bash
-GOTTY_DOMAIN=terminal.yourdomain.com
-SSL_EMAIL=admin@yourdomain.com
-GOTTY_CREDENTIAL=yourusername:yourpassword
-```
+```bashGOTTY_DOMAIN=terminal.yourdomain.com
 
-### 2. Deploy
+cp .env.example .envSSL_EMAIL=admin@yourdomain.com
 
-```bash
-sudo ./deploy-gotty-production.sh
+nano .envGOTTY_CREDENTIAL=yourusername:yourpassword
+
+``````
+
+
+
+**Required variables:**### 2. Deploy
+
+```env
+
+GOTTY_DOMAIN=your-domain.com```bash
+
+SSL_EMAIL=your-email@example.comsudo ./deploy-gotty-production.sh
+
+GOTTY_AUTH_TOKEN=your_secure_random_token_here```
+
 ```
 
 That's it! The script handles:
-- ✅ Installing GoTTY and dependencies
-- ✅ Configuring SSL certificates
-- ✅ Setting up nginx reverse proxy
-- ✅ Creating systemd service
+
+**Generate secure token:**- ✅ Installing GoTTY and dependencies
+
+```bash- ✅ Configuring SSL certificates
+
+openssl rand -hex 32- ✅ Setting up nginx reverse proxy
+
+```- ✅ Creating systemd service
+
 - ✅ Auto port detection
+
+### 3. Deploy
 
 ### 3. Test
 
 ```bash
-./test-gotty.sh
+
+sudo ./deploy-gotty-production.sh```bash
+
+```./test-gotty.sh
+
 ```
+
+That's it! 🎉 Your terminal server is now running.
 
 ## 📡 Access Your Terminal
 
+## 📋 Requirements
+
 **Web Browser:**
-```
-https://your-domain.com
-```
-Login with your `GOTTY_CREDENTIAL` username:password
 
-**Programmatic WebSocket:**
+- Linux server (Ubuntu/Debian recommended)```
+
+- Root or sudo accesshttps://your-domain.com
+
+- Domain name pointing to your server```
+
+- Ports 80 and 443 availableLogin with your `GOTTY_CREDENTIAL` username:password
+
+
+
+## 🌐 Usage**Programmatic WebSocket:**
+
 ```bash
-# Using websocat
-websocat -H="Authorization: Basic $(echo -n 'username:password' | base64)" \
-  wss://your-domain.com/ws
 
-# Using Python
+### Direct Browser Access# Using websocat
+
+websocat -H="Authorization: Basic $(echo -n 'username:password' | base64)" \
+
+```  wss://your-domain.com/ws
+
+https://your-domain.com
+
+```# Using Python
+
 python3 test/websocket-client.py
 
+**Note:** This will show HTTP Basic Auth popup (standard GoTTY behavior)
+
 # Using Node.js (optional - requires: npm install ws)
-node test/test-gotty-command.js
+
+### iframe Embedding (No Popup!)node test/test-gotty-command.js
+
 ```
 
----
+```
+
+https://your-domain.com/public?token=YOUR_TOKEN---
+
+```
 
 ## 📚 WebSocket API Documentation
 
+**No authentication popup!** Perfect for embedding in applications.
+
 ### Connection
+
+### Next.js Example
 
 Connect to: `wss://your-domain.com/ws`
 
-**Authentication:** HTTP Basic Auth in connection headers
+```typescript
 
-```javascript
+// components/Terminal.tsx**Authentication:** HTTP Basic Auth in connection headers
+
+export default function Terminal() {
+
+  const terminalUrl = `/api/terminal/url`;```javascript
+
 // Node.js
-const WebSocket = require('ws');
-const ws = new WebSocket('wss://your-domain.com/ws', {
-    headers: {
-        'Authorization': 'Basic ' + Buffer.from('username:password').toString('base64')
-    }
-});
-```
+
+  return (const WebSocket = require('ws');
+
+    <iframeconst ws = new WebSocket('wss://your-domain.com/ws', {
+
+      src={terminalUrl}    headers: {
+
+      style={{ width: '100%', height: '600px', border: 'none' }}        'Authorization': 'Basic ' + Buffer.from('username:password').toString('base64')
+
+      sandbox="allow-same-origin allow-scripts allow-forms"    }
+
+    />});
+
+  );```
+
+}
 
 ```python
-# Python
-import websocket
+
+// app/api/terminal/url/route.ts# Python
+
+import { NextResponse } from 'next/server';import websocket
+
 import base64
 
-auth = base64.b64encode(b'username:password').decode()
-ws = websocket.create_connection(
-    'wss://your-domain.com/ws',
-    header={'Authorization': f'Basic {auth}'}
+export async function GET() {
+
+  const url = `${process.env.GOTTY_PUBLIC_URL}/public?token=${process.env.GOTTY_AUTH_TOKEN}`;auth = base64.b64encode(b'username:password').decode()
+
+  return NextResponse.json({ url });ws = websocket.create_connection(
+
+}    'wss://your-domain.com/ws',
+
+```    header={'Authorization': f'Basic {auth}'}
+
 )
+
+### Environment Variables for Your App```
+
+
+
+```env### Protocol
+
+GOTTY_PUBLIC_URL=https://your-gotty-domain.com
+
+GOTTY_AUTH_TOKEN=your_token_hereGoTTY uses a simple binary protocol:
+
 ```
-
-### Protocol
-
-GoTTY uses a simple binary protocol:
 
 **Message Format:**
-```
+
+## 🧪 Testing```
+
 [Type Byte][Base64 Payload]
-```
 
-**Type Bytes:**
+```bash```
+
+./test-gotty.sh
+
+```**Type Bytes:**
+
 - `0` (0x30): Input/Output data
-- `1` (0x31): Output only
-- `2` (0x32): Ping
-- `3` (0x33): Set window title
-- `4` (0x34): Set preferences
 
-### Sending Commands
+Expected output:- `1` (0x31): Output only
+
+```- `2` (0x32): Ping
+
+✅ Health check OK- `3` (0x33): Set window title
+
+✅ Public endpoint works (NO AUTH POPUP)- `4` (0x34): Set preferences
+
+✅ Invalid token rejected (401)
+
+✅ Basic Auth works### Sending Commands
+
+```
 
 Send commands with type `0` followed by the command:
 
+## 🏗️ Architecture
+
 ```javascript
-// Format: '0' + command + '\n'
-ws.send('0pwd\n');
-ws.send('0ls -la\n');
-ws.send('0echo "Hello"\n');
+
+```// Format: '0' + command + '\n'
+
+Browser (iframe) → Nginx (validates token) → GoTTY (authenticated)ws.send('0pwd\n');
+
+Result: No popup! ✅ws.send('0ls -la\n');
+
+```ws.send('0echo "Hello"\n');
+
 ```
 
+### How It Works
+
 ```python
-# Python
-ws.send(b'0pwd\n')
-ws.send(b'0ls -la\n')
-```
+
+1. Browser loads `/public?token=xxx` (no auth header sent)# Python
+
+2. Nginx validates token in URLws.send(b'0pwd\n')
+
+3. Nginx adds Authorization header server-sidews.send(b'0ls -la\n')
+
+4. Browser never sees auth requirement```
+
+5. Terminal loads without popup!
 
 ```bash
-# Using websocat
+
+## 🔐 Security# Using websocat
+
 echo "0pwd" | websocat -H="Authorization: Basic $(echo -n 'user:pass' | base64)" \
-  wss://your-domain.com/ws
-```
 
-### Receiving Output
+✅ **Best Practices:**  wss://your-domain.com/ws
 
-Output comes as binary messages starting with type byte `0` (0x30), followed by base64-encoded data:
+- Strong random tokens (64 characters)```
 
-```javascript
+- HTTPS only (auto-enforced)
+
+- Tokens in environment variables### Receiving Output
+
+- Never committed to Git
+
+- Server-side validationOutput comes as binary messages starting with type byte `0` (0x30), followed by base64-encoded data:
+
+
+
+### Rotate Tokens```javascript
+
 // Node.js
-ws.on('message', (data) => {
-    const buffer = Buffer.from(data);
-    if (buffer[0] === 0x30) {  // Type '0'
+
+```bashws.on('message', (data) => {
+
+# Generate new token    const buffer = Buffer.from(data);
+
+openssl rand -hex 32    if (buffer[0] === 0x30) {  // Type '0'
+
         const base64Data = buffer.slice(1).toString('utf-8');
-        const output = Buffer.from(base64Data, 'base64').toString('utf-8');
-        console.log(output);
+
+# Update .env file        const output = Buffer.from(base64Data, 'base64').toString('utf-8');
+
+nano .env        console.log(output);
+
     }
-});
-```
 
-```python
-# Python
-import base64
+# Update Nginx config});
 
-data = ws.recv()
+sudo nano /etc/nginx/sites-available/gottyconnect```
+
+
+
+# Reload```python
+
+sudo systemctl reload nginx# Python
+
+```import base64
+
+
+
+## 📊 Service Managementdata = ws.recv()
+
 if data[0] == 0x30:  # Type '0'
-    output = base64.b64decode(data[1:]).decode('utf-8')
-    print(output)
-```
 
-### Complete Example
+```bash    output = base64.b64decode(data[1:]).decode('utf-8')
+
+# Check status    print(output)
+
+sudo systemctl status gottyconnect```
+
+
+
+# View logs### Complete Example
+
+sudo journalctl -u gottyconnect -f
 
 ```javascript
-const WebSocket = require('ws');
 
-// Connect with auth
+# Restartconst WebSocket = require('ws');
+
+sudo systemctl restart gottyconnect
+
+```// Connect with auth
+
 const ws = new WebSocket('wss://your-domain.com/ws', {
-    headers: {
+
+## 🐛 Troubleshooting    headers: {
+
         'Authorization': 'Basic ' + Buffer.from('user:pass').toString('base64')
-    }
+
+### Terminal Not Loading    }
+
 });
 
-ws.on('open', () => {
-    console.log('Connected!');
+```bash
+
+# Check servicews.on('open', () => {
+
+sudo systemctl status gottyconnect    console.log('Connected!');
+
     
-    // Send command
-    ws.send('0pwd\n');
-    
+
+# Check logs    // Send command
+
+sudo journalctl -u gottyconnect -n 50    ws.send('0pwd\n');
+
+```    
+
     // Send multiple commands
-    setTimeout(() => ws.send('0whoami\n'), 1000);
+
+### Still Getting Auth Popup    setTimeout(() => ws.send('0whoami\n'), 1000);
+
     setTimeout(() => ws.send('0date\n'), 2000);
-});
 
-ws.on('message', (data) => {
-    const buffer = Buffer.from(data);
-    if (buffer[0] === 0x30) {
-        const decoded = Buffer.from(buffer.slice(1).toString(), 'base64');
-        console.log('Output:', decoded.toString());
-    }
-});
+Make sure you're using:});
 
-ws.on('error', (err) => console.error('Error:', err));
-ws.on('close', () => console.log('Disconnected'));
 ```
 
-### Error Handling
+✅ https://your-domain.com/public?token=xxx  (No popup)ws.on('message', (data) => {
 
-- **401 Unauthorized**: Invalid credentials
-- **Connection refused**: Service not running or firewall blocking
-- **Connection timeout**: Network issues or wrong domain
+❌ https://your-domain.com/                   (Has popup)    const buffer = Buffer.from(data);
 
-```javascript
-ws.on('error', (error) => {
-    if (error.message.includes('401')) {
-        console.error('Authentication failed - check credentials');
+```    if (buffer[0] === 0x30) {
+
+        const decoded = Buffer.from(buffer.slice(1).toString(), 'base64');
+
+### WebSocket Fails        console.log('Output:', decoded.toString());
+
     }
-});
+
+```bash});
+
+# Check Nginx config
+
+sudo nginx -tws.on('error', (err) => console.error('Error:', err));
+
+ws.on('close', () => console.log('Disconnected'));
+
+# Reload Nginx```
+
+sudo systemctl reload nginx
+
+```### Error Handling
+
+
+
+## 📦 What's Included- **401 Unauthorized**: Invalid credentials
+
+- **Connection refused**: Service not running or firewall blocking
+
+```- **Connection timeout**: Network issues or wrong domain
+
+gottyconnect/
+
+├── deploy-gotty-production.sh   # Main deployment script```javascript
+
+├── test-gotty.sh                # Test scriptws.on('error', (error) => {
+
+├── .env.example                 # Environment template    if (error.message.includes('401')) {
+
+├── README.md                    # This file        console.error('Authentication failed - check credentials');
+
+├── COMPLETE-FIX-SUMMARY.md     # Technical documentation    }
+
+└── test/});
+
+    └── test-gotty-command.js    # WebSocket test```
+
 ```
 
 ---
 
+## 📝 Configuration Reference
+
 ## 🔧 Service Management
 
-```bash
-# Check status
-sudo systemctl status gottyconnect
+| Variable | Required | Description |
 
-# Restart
+|----------|----------|-------------|```bash
+
+| `GOTTY_DOMAIN` | ✅ | Your domain name |# Check status
+
+| `SSL_EMAIL` | ✅ | Email for SSL certificates |sudo systemctl status gottyconnect
+
+| `GOTTY_AUTH_TOKEN` | ✅ | Authentication token |
+
+| `GOTTY_PORT` | ⚠️ | Port (auto-detected if not set) |# Restart
+
 sudo systemctl restart gottyconnect
 
+## 🎯 Use Cases
+
 # View logs
-sudo journalctl -u gottyconnect -f
-tail -f /var/log/gottyconnect/gotty.log
-```
 
-## 🌍 Deploy on New Server
+- **DevOps Dashboards** - Embed terminal in admin panelssudo journalctl -u gottyconnect -f
 
-1. **Copy repository:**
+- **Educational Platforms** - Provide students terminal accesstail -f /var/log/gottyconnect/gotty.log
+
+- **CI/CD Tools** - Real-time build monitoring```
+
+- **System Monitoring** - Quick terminal access
+
+- **Remote Support** - Share terminal sessions## 🌍 Deploy on New Server
+
+
+
+## 🤝 Contributing1. **Copy repository:**
+
 ```bash
-git clone https://github.com/Hetawk/gottyconnect.git
+
+Contributions welcome! Please submit a Pull Request.git clone https://github.com/Hetawk/gottyconnect.git
+
 cd gottyconnect
-```
 
-2. **Configure:**
+## 📄 License```
+
+
+
+MIT License2. **Configure:**
+
 ```bash
-cp .env.example .env
+
+## 🙏 Acknowledgmentscp .env.example .env
+
 nano .env  # Update domain, email, credentials
-```
 
-3. **Deploy:**
-```bash
-sudo ./deploy-gotty-production.sh
-```
+- [GoTTY](https://github.com/yudai/gotty) - Terminal as a web application```
 
-## 🔐 Authentication
+- [Let's Encrypt](https://letsencrypt.org/) - Free SSL certificates
 
-GoTTY uses HTTP Basic Authentication. Set credentials in `.env`:
+- [Nginx](https://nginx.org/) - Web server3. **Deploy:**
 
 ```bash
+
+## 📞 Supportsudo ./deploy-gotty-production.sh
+
+```
+
+- Check [Troubleshooting](#-troubleshooting)
+
+- Review logs: `sudo journalctl -u gottyconnect -f`## 🔐 Authentication
+
+- Open GitHub issue
+
+- See [COMPLETE-FIX-SUMMARY.md](COMPLETE-FIX-SUMMARY.md)GoTTY uses HTTP Basic Authentication. Set credentials in `.env`:
+
+
+
+---```bash
+
 GOTTY_CREDENTIAL=myuser:mypassword
-```
+
+**Status:** ✅ Production Ready | **Deploy Time:** ~3 minutes | **Works:** Anywhere!```
+
 
 For WebSocket connections, include the Authorization header:
 ```bash
