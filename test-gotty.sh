@@ -1,5 +1,11 @@
 #!/bin/bash
-source /home/hetawk/coding/ttyd/.env
+# Load environment variables from local .env file
+if [ -f .env ]; then
+    source .env
+else
+    echo "❌ Error: .env file not found. Copy .env.example to .env and configure."
+    exit 1
+fi
 
 echo "🧪 Testing GoTTY Terminal Server"
 echo ""

@@ -31,41 +31,15 @@ const ws = new WebSocket(WS_URL, {
     rejectUnauthorized: true
 });
 
+const MSG_INPUT = '1';
+const MSG_RESIZE = '3';
+const MSG_PING = '2';
+
 let receivedOutput = false;
 let commandsSent = 0;
+let pingInterval;
 
-ws.on('open', () => {
-    console.log('✅ WebSocket connected successfully!');
-    console.log('');
-
-    // GoTTY protocol: Send commands with type '0' (input)
-    // Format: '0' + command + '\n'
-
-    setTimeout(() => {
-        commandsSent++;
-        console.log('📤 Command 1: pwd');
-        ws.send('0pwd\n');
-    }, 300);
-
-    setTimeout(() => {
-        commandsSent++;
-        console.log('📤 Command 2: whoami');
-        ws.send('0whoami\n');
-    }, 800);
-
-    setTimeout(() => {
-        commandsSent++;
-        console.log('📤 Command 3: echo "GoTTY WebSocket Test Successful!"');
-        ws.send('0echo "GoTTY WebSocket Test Successful!"\n');
-    }, 1300);
-
-    setTimeout(() => {
-        commandsSent++;
-        console.log('📤 Command 4: date');
-        ws.send('0date\n');
-    }, 1800);
-});
-
+// Setup message handler BEFORE connection opens
 ws.on('message', (data) => {
     /**
      * GoTTY Protocol:
@@ -79,12 +53,18 @@ ws.on('message', (data) => {
     if (Buffer.isBuffer(data) || data instanceof ArrayBuffer) {
         const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
 
+        console.log('📨 Raw message received, length:', buffer.length, 'first byte:', buffer[0], '(0x' + buffer[0].toString(16) + ')');
+
         if (buffer.length > 1) {
             const msgType = buffer[0];
             const content = buffer.slice(1);
 
-            // Handle terminal output (types '0' and '1' contain base64-encoded data)
-            if (msgType === 0x30 || msgType === 0x31) {
+            if (msgType === 0x30) {
+                console.log('ℹ️ Received server init payload');
+            }
+
+            // Handle terminal output (type '1' contains base64-encoded data)
+            if (msgType === 0x31) {
                 try {
                     const base64Data = content.toString('utf-8');
                     const decoded = Buffer.from(base64Data, 'base64').toString('utf-8');
@@ -101,6 +81,40 @@ ws.on('message', (data) => {
     }
 });
 
+ws.on('open', () => {
+    console.log('✅ WebSocket connected successfully!');
+    console.log('');
+
+    // 1. Send handshake immediately
+    const initMessage = JSON.stringify({ Arguments: '', AuthToken: CREDENTIAL });
+    console.log('🤝 Sending handshake:', initMessage.substring(0, 50) + '...');
+    ws.send(initMessage);
+
+    // 2. Send resize immediately after handshake (no delay)
+    console.log('📐 Sending resize payload');
+    ws.send(MSG_RESIZE + JSON.stringify({ columns: 80, rows: 24 }));
+
+    // 3. Setup ping interval
+    pingInterval = setInterval(() => {
+        console.log('💓 Sending ping');
+        ws.send(MSG_PING);
+    }, 30000);
+
+    // 4. Send commands after a brief delay to allow terminal to initialize
+    const sendCommand = (label, command, delay) => {
+        setTimeout(() => {
+            commandsSent++;
+            console.log(`📤 Command ${label}: ${command}`);
+            ws.send(MSG_INPUT + command + '\r');
+        }, delay);
+    };
+
+    sendCommand('1', 'pwd', 400);
+    sendCommand('2', 'whoami', 800);
+    sendCommand('3', 'echo "GoTTY WebSocket Test Successful!"', 1200);
+    sendCommand('4', 'exit', 2000);
+});
+
 ws.on('error', (error) => {
     console.error('');
     console.error('❌ WebSocket error:', error.message);
@@ -115,12 +129,21 @@ ws.on('error', (error) => {
 });
 
 ws.on('close', (code, reason) => {
+    if (pingInterval) {
+        clearInterval(pingInterval);
+    }
     console.log('');
     console.log('🔌 WebSocket closed');
     console.log('   Code:', code);
     console.log('   Reason:', reason.toString() || 'Normal closure');
     console.log('   Commands sent:', commandsSent);
     console.log('   Output received:', receivedOutput ? 'Yes ✅' : 'No ❌');
+    console.log('');
+    console.log('📊 Close Code Reference:');
+    console.log('   1000 = Normal closure');
+    console.log('   1001 = Going away');
+    console.log('   1006 = Abnormal closure (no close frame)');
+    console.log('   1011 = Server error');
     console.log('');
 
     if (receivedOutput) {
@@ -139,9 +162,12 @@ ws.on('close', (code, reason) => {
     }
 });
 
-// Timeout after 5 seconds
+// Timeout after 10 seconds to allow command execution
 setTimeout(() => {
     console.log('');
     console.log('⏰ Test timeout - closing connection');
+    if (pingInterval) {
+        clearInterval(pingInterval);
+    }
     ws.close();
-}, 5000);
+}, 10000);

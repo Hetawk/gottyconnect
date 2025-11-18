@@ -1,0 +1,27 @@
+{
+  "name": "gottyconnect",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hetawk/gottyconnect.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Hetawk/gottyconnect/issues"
+  },
+  "homepage": "https://github.com/Hetawk/gottyconnect#readme",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "ws": "^8.18.3"
+  }
+}
